@@ -1,0 +1,43 @@
+name: Feature request
+description: Describe a user problem and a focused improvement.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [existing issues](https://github.com/macopc/PicWiz/issues) and the [V3 plan](https://github.com/macopc/PicWiz/blob/HEAD/docs/v3/spec.md) first. V3 is specification work only; gallery, accounts, 3D and video are not implemented.
+        Keep examples and attachments free of private screenshots, personal data and secrets.
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Who needs this, what are they trying to do, and what is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful change and how a user would know it works. Link related issues or specification sections.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include existing workarounds or a smaller solution, if any.
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Data and privacy impact
+      description: Would this change local storage, backups, exports, network requests or external services? Say "No change" if none is expected.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and checked the current behavior and V3 plan.
+          required: true
+        - label: This request and its attachments contain no sensitive data.
+          required: true

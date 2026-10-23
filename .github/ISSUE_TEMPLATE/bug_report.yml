@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible problem in the implemented app.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use synthetic images or the bundled demo. Issues and attachments are public: do not include private screenshots, local-storage dumps, recovery backups, clipboard data or secrets.
+        Suspected vulnerability? Use [private security reporting](https://github.com/macopc/PicWiz/security/advisories/new) instead.
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      description: Include the commit SHA if running from source, or the hosted URL if the version is unknown.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser and version, OS/device, and local or hosted build.
+      placeholder: Browser name and version, OS, local build
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: List exact steps from a known state using non-sensitive sample data. Note whether a fresh browser profile also reproduces the problem.
+      placeholder: |
+        1. Open the editor and wait for the bundled example to load.
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: What should happen, what happened instead, and any displayed error code.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Optional evidence
+      description: Sanitized logs or screenshots made with fictional data. Inspect recordings and logs before attaching them.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and the usage/recovery guide.
+          required: true
+        - label: This report and its attachments contain no sensitive data.
+          required: true

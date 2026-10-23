@@ -1,32 +1,85 @@
-# PicWiz
+<p align="center">
+  <img src="public/icon.svg" alt="" width="56" height="56">
+</p>
 
-A browser-local screenshot studio. Reuse style presets, add arrows, rectangles and text, choose a social composition size, and export a PNG or batch ZIP. Built with Next.js App Router, React, TypeScript and browser Canvas.
+<h1 align="center">PicWiz</h1>
 
-**Your screenshots stay in your browser.** Images, annotations, preset files and ZIP contents are not uploaded. There are no accounts, database, object storage, analytics or remote workers. The browser profile owns its workspace; people sharing a profile share its data. Local-only requirements take precedence over generic PostgreSQL/auth/S3 requirements. See [architecture](docs/architecture.md) and [data model](docs/data-model.md).
+<p align="center">Turn screenshots into polished social images. Keep every pixel on your device.</p>
 
-## Run locally
+<p align="center">
+  <a href="https://github.com/macopc/PicWiz/actions/workflows/ci.yml"><img src="https://github.com/macopc/PicWiz/actions/workflows/ci.yml/badge.svg?branch=main" alt="Build and tests on main"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
+  <a href="https://nodejs.org/en/download"><img src="https://img.shields.io/badge/node-24_LTS-417e38.svg" alt="Node.js 24 LTS"></a>
+</p>
 
-Use Node.js **24 LTS**, npm and a current browser. No environment file or service credentials are required.
+<p align="center">
+  English · <a href="README.zh-CN.md">简体中文</a> · <a href="docs/guides/usage.md">Usage guide</a> · <a href="docs/README.md">Documentation & specs</a> · <a href="CONTRIBUTING.md">Contribute</a>
+</p>
+
+![PicWiz desktop editor showing a fictional dashboard on a violet gradient, with style controls and PNG export.](docs/v2/screenshots/editor-desktop.png)
+
+PicWiz is a focused screenshot studio for product launches, changelogs and social posts. Drop a screenshot, choose a look, add a little context, and export. Reuse that look across your next post or a whole batch.
+
+**Screenshots stay in your browser.** Rendering, annotations, preset files and ZIP creation run locally. V2 has no accounts, uploads, analytics, database or cloud storage. Your browser profile and origin own the workspace; people sharing that profile share its data.
+
+## Quick start
+
+Install [Node.js 24 LTS](https://nodejs.org/en/download) and Git, then run:
 
 ```sh
+git clone https://github.com/macopc/PicWiz.git
+cd PicWiz
 npm ci
 npm run dev
 ```
 
-Open <http://localhost:3000>. Choose **Use example**, drop or paste a PNG/JPEG/WebP, or use **Add screenshot**. Fonts and the fictional example are bundled locally. [.env.example](.env.example) documents optional process variables; supply Playwright variables to the test process, not just a Next.js env file.
+Open **[localhost:3000](http://localhost:3000)**. No account, API key, environment file or database setup is needed. The example screenshot and fonts are bundled.
 
-## Create and export
+1. Try the example that loads on first visit, click **Add screenshot**, or drop/paste a PNG, JPEG or WebP. On an empty canvas, **Use example** brings the demo back.
+2. Pick a starter look. Adjust the background, padding, corners, shadow or frame.
+3. Choose an output size and scale, then **Export PNG** or **Copy image**.
 
-- **Style presets:** Studio, Paper, Midnight, Mint, Sunset and Ocean apply appearance while preserving the screenshot, annotations, output size and scale. Save up to 24 personal looks; update with confirmation, rename, delete, or import/export appearance-only JSON. Preset files contain no image or annotations, are limited to 100 KiB/24 entries, and import atomically. Re-importing the same names and looks skips duplicates.
-- **Annotations:** add arrows, rectangles or plain text, select layers, drag or edit percentage coordinates, and change color/weight/text size. Arrow keys move 1%; Shift+arrow moves 5%; Delete removes a selected annotation. Undo/redo retains 50 annotation edits in this session. Up to 30 annotations stay anchored to the screenshot across output sizes. Text is limited to 140 characters and three rendered lines, clipped at its box. Annotations are not a redaction tool.
-- **Sizes:** landscape 1600×900, square 1080×1080, portrait 1080×1350, story 1080×1920, LinkedIn 1200×627 and Pinterest 1000×1500, all at 1× or 2×. PNG download, clipboard and batch use one renderer with exact dimensions and aspect-fit images. Clipboard support depends on HTTPS/localhost, browser and OS permission; PNG download is the fallback.
-- **Batch export:** include the current screenshot with its annotations and/or add files, choose 1–3 sizes, then **Prepare ZIP** and explicitly download it. Other files do not inherit the current annotations. Results have unique numbered paths, such as `01-dashboard/landscape-1600x900.png`, plus `picwiz-manifest.json` with dimensions, attempt/status and error metadata.
+For a consistent feed, open **My presets**, save the current appearance, then apply it to your next screenshot. The [usage guide](docs/guides/usage.md) walks through presets, annotations and batch export.
 
-Batch limits are **10 sources, 150 MiB original-file input, 30 PNGs, 64 MiB retained PNGs across retries and a 65 MiB ZIP**. Individual files remain limited to 25 MiB, 40 megapixels and 16,384 pixels per edge. The PNG budget is not a total browser-memory guarantee. Reduce source count, size count or scale after a resource-limit error.
+## What you can make
 
-Partial failures retain successful PNGs; retryable failures use the original snapshot without re-encoding successes. Invalid files require replacement or a new batch. ZIP packaging failure offers **Prepare ZIP again** using existing PNGs. Cancel stops new work and automatic download; after settling, **Download completed results** can explicitly package successes. Native PNG encoding cannot be forcibly interrupted: a 15-second application timeout/cancel leaves the encoder locked until its callback finishes; reload if it never responds. Closing the batch dialog releases its files/results; reopening or refreshing requires adding batch files again.
+| Capability | Available in V2 |
+| --- | --- |
+| Style presets | Six starter looks and up to 24 personal presets; rename, update, delete and share appearance-only JSON. |
+| Screenshot styling | Gradient or solid backgrounds, padding, rounded corners, shadow, and light/dark browser or device frames. |
+| Annotations | Arrows, rectangles and text; layer selection, keyboard positioning, and session undo/redo. |
+| Social sizes | Six formats with exact PNG dimensions at 1× or 2×. |
+| Batch export | Up to 10 screenshots × 3 sizes in one local ZIP, with progress, cancellation and partial-failure recovery. |
+| Local persistence | Restore the current screenshot, style, annotations and saved presets after refresh. |
 
-## Tests and reproducible fixtures
+| Format | Pixels at 1× | Format | Pixels at 1× |
+| --- | --- | --- | --- |
+| Landscape | 1600 × 900 | Square | 1080 × 1080 |
+| Portrait | 1080 × 1350 | Story | 1080 × 1920 |
+| LinkedIn | 1200 × 627 | Pinterest | 1000 × 1500 |
+
+LinkedIn refers to a Page link image; Pinterest refers to a standard image ad. These are composition presets, not guarantees about platform acceptance or cropping.
+
+<details>
+<summary><strong>See presets, batch export and the mobile layout</strong></summary>
+
+### A reusable look library
+
+![The PicWiz preset library with six built-in looks and controls for personal styles.](docs/v2/screenshots/presets.png)
+
+### One look, multiple outputs
+
+![Batch export dialog with screenshot selection, six available formats and a Prepare ZIP action.](docs/v2/screenshots/batch.png)
+
+### A workspace for smaller screens
+
+<img src="docs/v2/screenshots/editor-phone.png" alt="PicWiz mobile viewport with the canvas, styling tools and export controls." width="390">
+
+Screenshots show the real V2 interface with fictional demo content. [Screenshot provenance and update instructions](docs/guides/screenshots.md).
+
+</details>
+
+## Develop and test
 
 ```sh
 npm ci
@@ -34,63 +87,57 @@ npx playwright install --with-deps chromium firefox webkit
 npm test
 ```
 
-`npm test` runs typecheck → Vitest unit/adapter tests → Playwright browser tests. Chromium runs the complete suite; Firefox and WebKit run the `@critical` flows. Each test gets isolated browser storage. Local tests start/reuse the development server on port 3000; leave that port free unless intentionally testing an existing app. A custom Chromium binary can use `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; it does not replace Firefox/WebKit.
+`npm test` runs TypeScript checks, unit/adapter tests and browser journeys. Chromium runs the full suite; Firefox and WebKit run critical journeys. Tests use isolated browser storage. Leave port 3000 free for the automatically started development server, or supply `PLAYWRIGHT_BASE_URL` for an existing server.
 
-```sh
-npm run typecheck
-npm run test:unit
-npm run test:e2e
-npm run seed
-npm run build
-```
+The [V2 validation record](docs/v2/validation.md) documents the completed production run: **110 unit/adapter tests and 57 browser cases**, including exported pixels, ZIP contents, migration, recovery and interaction races. It also states what was not proven on physical devices or the OS clipboard.
 
-Seed regenerates only fictional content: `/example.png`, the existing V1 fixtures at `tests/fixtures/{recovery-state.json,not-an-image.txt}`, and [V2 demo fixtures](public/fixtures/README.md) with three source PNGs, happy/empty/failed/interrupted stores, a legacy migration store and an importable preset file. It does not alter browser storage. Existing browser tests keep using the V1 recovery fixture and generate other images in memory; public V2 documents are manual demo inputs, not claimed test coverage.
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the local editor. |
+| `npm run build` / `npm start` | Build / serve the production app. |
+| `npm run typecheck` | Check TypeScript. |
+| `npm run test:unit` / `npm run test:e2e` | Run one test layer. |
+| `npm run docs:check` | Check repository documentation links and image references. |
+| `npm run seed` | Regenerate fictional demo and recovery fixtures; does not change browser data. |
 
-The [CI workflow](.github/workflows/ci.yml) installs all three engines, regenerates fixtures, builds, starts production, checks health/headers, and runs the same `npm test` command with `PLAYWRIGHT_BASE_URL`. For an equivalent local production run:
-
-```sh
-npm run build
-npm start
-# In a second terminal:
-CI=1 PLAYWRIGHT_BASE_URL=http://localhost:3000 npm test
-```
-
-Tests cover PNG dimensions/pixels, presets, annotations, ZIP contents, migration/recovery, errors/races, keyboard/mobile viewport and accessibility. Adapter fakes do not establish OS clipboard interoperability. See [the validation record](docs/v2/validation.md) for actual runs, reviewed fixes and per-engine scope. Physical Safari/iOS/Android and low-memory devices remain separate checks.
+See the [development guide](docs/guides/development.md) for the code map, production testing and troubleshooting. Built with **Next.js App Router, React, TypeScript and browser Canvas**. No backend services are required for V2.
 
 ## Local retention, backup and recovery
 
-Schema **2** lives under `picwiz:store`: current normalized screenshot, style, annotations, up to 24 presets and the last 20 export-job records. Only the current image is durable. Annotation undo, batch files, decoded images, PNG blobs and ZIPs are session-only. Preset thumbnails render a neutral example. Export records contain metadata, not downloadable files. Downloads, originals and clipboard contents remain under your control.
+The current workspace and presets live in `localStorage`. Only one screenshot is durable; annotation undo and batch files/results last for the current session. Clearing browser data or changing the site's origin can make the workspace unavailable. Keep a private backup before upgrading or resetting.
 
-On upgrade, versioned migrations `001` → `002` validate frozen V1 data and adopt `shinyshot:store` only when the new key is absent. The old raw key stays as a rollback backup until confirmed clear. Source, IDs, names and timestamps survive; padding/radius are converted to output pixels with rounding, so frame/shadow geometry can vary slightly. Presets now apply appearance only. A corrupt/future **new** key blocks saving instead of falling back to legacy data. Startup migration and pending-job recovery may write once; a fresh empty store remains in memory until saved.
+The editor offers recovery for storage errors, session-only editing/export, a local backup download and confirmed **Clear local data**. Backup files may contain your screenshot. The retained `shinyshot:store` key is a V1 rollback backup; normal work uses `picwiz:store`. There is no full-backup import screen or cloud recovery.
 
-Retention ends at confirmed deletion, browser eviction or profile cleanup; private windows commonly discard data on close. **Reset style** restores default appearance and output settings (landscape, 1×), retaining the image, annotations, presets and history. **Remove screenshot** removes the current V2 source/annotations and keeps presets/history/style; it does not erase the legacy backup. Confirmed **Clear local data** deletes legacy then current, verifies both keys, and leaves unrelated site keys alone. The UI may then save a fresh empty workspace. Partial clear failure reports an error and blocks saving until successful clear or reload; it must not claim deletion succeeded.
+Read [local data, migration and manual restore](docs/guides/local-data.md) before restoring or rolling back. [Deployment and diagnostics](docs/guides/deployment.md) covers HTTPS, headers, health checks and hosting.
 
-Quota/unavailability, corrupt/future schemas and tab conflicts expose recovery: download a local backup, continue session-only, retry saving/reload, or confirm clear. Editing and PNG export remain possible without a successful save. Pending exports found after reload become failed/`interrupted`; batch files cannot be recovered from history. Other-tab changes require reload before saving; localStorage has no cross-tab transaction guarantee.
+## Limits worth knowing
 
-**Keep local backups private: they can contain your screenshot.** Recovery downloads `{app:"picwiz",type:"local-data-backup",version:1,createdAt,keys:{"picwiz:store":rawOrNull,"shinyshot:store":rawOrNull}}`. Both raw strings are preserved verbatim, including damaged JSON. Unreadable storage cannot be backed up through the app. Outside recovery, copy both raw values from developer tools or back up the browser profile before changing releases.
+- **Input:** PNG/JPEG/WebP, up to 25 MiB, 40 megapixels and 16,384 pixels per edge. Saved images are normalized to at most 4096 pixels per edge and may be compressed or reduced further. A 2× export cannot restore lost source detail.
+- **Batch:** 10 sources, 150 MiB original inputs, 30 PNGs, 64 MiB retained PNGs and a 65 MiB ZIP. These are retained-output limits, not a total browser-memory guarantee. Closing the batch dialog discards its results.
+- **Browser APIs:** editing needs JavaScript and Canvas. Clipboard copying requires browser support, HTTPS/localhost and permission; PNG download is the fallback. No offline service worker is included.
+- **Annotations:** up to 30 objects; text is limited to 140 characters and three rendered lines. Annotations are not a redaction tool.
+- **Native encoding:** cancellation stops new work, but cannot forcibly end a browser encoder. A hung native callback may require reload. See [recovery guidance](docs/guides/usage.md).
 
-There is no full-backup import screen. To restore, close other editor tabs, back up current values, then use developer tools on the **same origin** (scheme/host/port) to set each key to its corresponding raw string, removing a key represented by `null`; reload afterward. Do not paste the wrapper as a store value or import it as presets. Use a compatible release for newer/unknown schemas. Restore replaces data rather than merging; no backup means browser deletion cannot be undone.
+## Project status and roadmap
 
-Rollback requires previous code (V1 baseline `09179ae`) **and** compatible V1 data; no down migration converts schema 2. The retained legacy document does **not** contain later V2 edits. Preserve both keys before rollback. Returning to V2 after editing in V1 still gives an existing `picwiz:store` precedence; reconcile which snapshot to keep manually before removing either key.
+**V2 is implemented. V3 is specified, not implemented.** The repository includes the research, product designs, engineering contracts and independent review records that led to both stages.
 
-## Production and diagnosis
+| Stage | Scope | Status |
+| --- | --- | --- |
+| V2 | Presets, batch PNG export, annotations, social sizes | Implemented and locally validated. [Specification](docs/v2/spec.md) · [Evidence](docs/v2/validation.md) |
+| V3 Gallery | Headless CMS template library; Sanity selected in the specification | Specification reviewed; no integration yet. [Gallery spec](docs/v3/gallery-spec.md) |
+| V3 3D | Three.js procedural generic models | Independent PNG POC planned; GPU/device evidence pending. [POC spec](docs/v3/render-poc-spec.md) |
+| V3 Video | Browser encoding with device capability probes | POC planned; codec, memory and actual playback gates pending. [POC spec](docs/v3/render-poc-spec.md) |
+| V3 Accounts | Clerk hosted SDK; explicitly selected appearance data only | Specification reviewed; no account or sync implementation. [Account spec](docs/v3/accounts-spec.md) |
 
-```sh
-npm ci
-npm run build
-npm start
-```
+Start with the [documentation index](docs/README.md) for the source-of-truth order, [V3 implementation specification](docs/v3/spec.md), and the distinction between reviewed requirements and completed tests. Most product research and V3 specifications are written in Chinese.
 
-Deploy to a Node-compatible Next.js host with Node 24 and HTTPS. Install development dependencies for build/tests/seed; no runtime secret, database, bucket, auth callback, webhook or worker is needed. Keep a stable origin for the same browser workspace. A static export is not configured.
+## Contribute
 
-`GET /api/health` returns `{status:"ok",app:"picwiz",version:2,storage:"browser-local",requestId}` with `Cache-Control: no-store` and `X-Request-ID`. It checks the route, not a browser's storage/clipboard. Its log contains event, random request ID and status; hosting access logs may still exist. Do not log screenshots, filenames, annotations, preset contents or clipboard data.
+Bug reports, focused fixes, accessibility improvements and documentation contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), use a [bug or feature form](https://github.com/macopc/PicWiz/issues/new/choose), and attach only fictional or sanitized examples. Discuss scope before starting a substantial V3 change.
 
-For diagnosis, check health, then the browser recovery message and job error code. `storage_quota` needs site space/session-only editing; `storage_conflict` needs reload; corrupt/future data needs private backup plus a compatible release or clear; `interrupted` needs an explicit new export; `png_busy` needs encoder settlement or reload. A healthy server cannot restore evicted browser data.
+[Support](SUPPORT.md) · [Security reporting](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Changelog](CHANGELOG.md)
 
-`next.config.ts` sends CSP, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` and a restrictive Permissions-Policy. Production permits Next.js inline scripts/styles; network/fonts stay same-origin, images also allow local data/blob URLs, objects/framing are blocked. Configure HTTPS at the host and verify headers survive its proxy. Editing needs JavaScript/Canvas; no offline service worker, cloud sync or account recovery is included.
+## License and credits
 
-Authoritative behavior and accepted risks are in [spec.md](docs/v2/spec.md), including R1–R5; [review.md](docs/v2/review.md) separates spec review from implementation evidence. Gallery, 3D, video and account work follows V2 completion and is outside this implementation.
-
-## Next-stage decisions
-
-V2 is complete at `0704446`; see [actual validation](docs/v2/validation.md). Gallery, 3D, video and accounts have [product designs](docs/future/product-design.md), [technical comparisons](docs/future/decisions.md), [independent reviews](docs/future/review.md) and an archived [local decision brief](docs/future/decision-brief.html). The user selected D1B / D2A / D3A / D4C; the [next-stage implementation specification](docs/v3/spec.md) and [spec reviews](docs/v3/review.md) record that scope with a READY WITH RISKS verdict. This is specification work only; no future feature, dependency, migration or provider resource has been implemented.
+[MIT](LICENSE) © 2026 macopc and PicWiz contributors. Bundled fonts, icons and dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).

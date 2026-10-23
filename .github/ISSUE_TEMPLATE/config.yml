@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage, recovery and support
+    url: https://github.com/macopc/PicWiz/blob/HEAD/SUPPORT.md
+    about: Read the usage and recovery guides before opening an issue.
+  - name: Report a security vulnerability privately
+    url: https://github.com/macopc/PicWiz/security/advisories/new
+    about: Keep security reports and exploit details out of public issues.
