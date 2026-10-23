@@ -29,7 +29,7 @@
     "@types/react-dom": "^19.2.0",
     "fflate": "0.8.3",
     "sharp": "^0.35.5",
-    "typescript": "^5.9.0",
+    "typescript": "^7.0.2",
     "vitest": "^4.0.0"
   },
   "description": "A local-first screenshot studio with presets, annotations, social sizes and batch PNG exports.",
