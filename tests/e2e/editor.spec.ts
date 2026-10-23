@@ -15,7 +15,9 @@ import {
   readStore,
   selectBackground,
   setSlider,
+  showInspector,
   sourceFromStore,
+  supportsClipboardPng,
   uploadSolid,
 } from "./helpers";
 
@@ -26,7 +28,7 @@ const alternateBackground = BACKGROUNDS.find(
   (background) => background.id !== solidBackground.id,
 )!;
 
-test("PNG download is exactly 1600 × 900 with the selected background and exact 80px padding", async ({
+test("@critical PNG download is exactly 1600 × 900 with the selected background and exact 80px padding", async ({
   page,
 }) => {
   await openEditor(page);
@@ -107,7 +109,7 @@ test("PNG download is exactly 1600 × 900 with the selected background and exact
   expect((await readStore(page))!.composition.source).toEqual(source);
 });
 
-test("frame, appearance, shadow, size and scale changes reach the preview and a real ClipboardItem PNG", async ({
+test("@critical frame, appearance, shadow, size and scale reach preview and native ClipboardItem PNG or download fallback", async ({
   page,
 }) => {
   await installClipboard(page);
@@ -165,8 +167,19 @@ test("frame, appearance, shadow, size and scale changes reach the preview and a 
   }
   await page.getByLabel("Export scale", { exact: true }).selectOption("2");
   await expectStyle(page, { size: "portrait", scale: 2 });
+  const clipboardSupported = await supportsClipboardPng(page);
   await page.getByRole("button", { name: "Copy image", exact: true }).click();
-  const png = await pngPixels(await clipboardPng(page));
+  let encoded: Buffer;
+  if (clipboardSupported) {
+    encoded = await clipboardPng(page);
+  } else {
+    await expect(page.getByTestId("notification")).toContainText(/download.*instead|download.*png/i);
+    const pending = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export PNG", exact: true }).click();
+    const path = await (await pending).path();
+    encoded = await readFile(path!);
+  }
+  const png = await pngPixels(encoded);
   expect({ width: png.width, height: png.height }).toEqual({
     width: 2160,
     height: 2700,
@@ -180,16 +193,16 @@ test("frame, appearance, shadow, size and scale changes reach the preview and a 
     .toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          kind: "clipboard",
+          kind: clipboardSupported ? "clipboard" : "download",
           status: "succeeded",
           width: 2160,
           height: 2700,
         }),
       ]),
     );
-  await expect(
-    page.getByRole("status").filter({ hasText: /copied/i }),
-  ).toBeVisible();
+  await expect(page.getByTestId("notification")).toContainText(
+    clipboardSupported ? /copied/i : /downloaded/i,
+  );
 });
 
 test("presets apply to the next screenshot, persist on reload, and can be renamed and deleted", async ({
@@ -262,20 +275,21 @@ test("presets apply to the next screenshot, persist on reload, and can be rename
     size: "portrait",
     scale: 1,
   });
-  await page.getByRole("button", { name: /^My presets(?:\s*\d+)?$/ }).click();
+  await page.getByRole("button", { name: "My presets", exact: true }).click();
   await page
     .getByRole("button", { name: `Apply ${name}`, exact: true })
     .click();
-  await expectStyle(page, savedStyle);
+  const appliedStyle = { ...savedStyle, size: "portrait" as const, scale: 1 as const };
+  await expectStyle(page, appliedStyle);
   expect((await readStore(page))!.composition.source).toEqual(nextSource);
 
   await page.reload();
   expect(await sourceFromStore(page, "next-screenshot.png")).toEqual(
     nextSource,
   );
-  await expectStyle(page, savedStyle);
+  await expectStyle(page, appliedStyle);
   await expectCenterColor(page, nextColor);
-  await page.getByRole("button", { name: /^My presets(?:\s*\d+)?$/ }).click();
+  await page.getByRole("button", { name: "My presets", exact: true }).click();
   await page
     .getByRole("button", { name: `Rename ${name}`, exact: true })
     .click();
@@ -294,7 +308,7 @@ test("presets apply to the next screenshot, persist on reload, and can be rename
     exact: true,
   });
   if (!(await deleteButton.isVisible()))
-    await page.getByRole("button", { name: /^My presets(?:\s*\d+)?$/ }).click();
+    await page.getByRole("button", { name: "My presets", exact: true }).click();
   await deleteButton.click();
   await page
     .getByRole("dialog")
@@ -302,13 +316,13 @@ test("presets apply to the next screenshot, persist on reload, and can be rename
     .click();
   await expect.poll(async () => (await readStore(page))?.presets).toEqual([]);
   expect((await readStore(page))!.composition.source).toEqual(nextSource);
-  await expectStyle(page, savedStyle);
+  await expectStyle(page, appliedStyle);
   await page.reload();
   expect(await sourceFromStore(page, "next-screenshot.png")).toEqual(
     nextSource,
   );
-  await expectStyle(page, savedStyle);
-  await page.getByRole("button", { name: /^My presets(?:\s*\d+)?$/ }).click();
+  await expectStyle(page, appliedStyle);
+  await page.getByRole("button", { name: "My presets", exact: true }).click();
   await expect(
     page.getByRole("button", { name: `Apply ${renamed}`, exact: true }),
   ).toHaveCount(0);
@@ -317,7 +331,6 @@ test("presets apply to the next screenshot, persist on reload, and can be rename
 test.describe("Mobile editor", () => {
   test.use({
     viewport: { width: 390, height: 844 },
-    isMobile: true,
     hasTouch: true,
   });
 
@@ -337,7 +350,7 @@ test.describe("Mobile editor", () => {
     await page
       .getByLabel("Output size", { exact: true })
       .selectOption("portrait");
-    await page.getByRole("button", { name: "Frame", exact: true }).click();
+    await showInspector(page, "Frame");
     await page
       .getByRole("button", { name: "Device frame", exact: true })
       .click();

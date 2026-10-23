@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
-export const metadata = { title: "Privacy — Shinyshot" };
+export const metadata = { title: "Privacy — PicWiz" };
 export default function Privacy() {
   return (
     <main className="privacy-page">
@@ -12,25 +12,38 @@ export default function Privacy() {
       </div>
       <h1>Your screenshot stays yours.</h1>
       <p>
-        Shinyshot opens, renders, and exports your screenshots entirely in your
+        PicWiz opens, renders, and exports your screenshots entirely in your
         browser. We never upload your images. There are no accounts, tracking
         scripts, or cloud libraries.
       </p>
       <h2>What is saved</h2>
       <p>
         Your current image, last-used settings, saved styles, and the last 20
-        export results are stored in this browser’s localStorage. Images are
+        export job records are stored in this browser’s localStorage. Images are
         resized when necessary to keep editing fast and fit browser storage
         limits. Saved style thumbnails contain a neutral illustration, never
-        your screenshot.
+        your screenshot. An upgraded browser also retains the original Shinyshot
+        workspace as a separate recovery backup, until you choose “Clear local
+        data”. It may contain an older screenshot.
       </p>
       <h2>You are in control</h2>
       <p>
         “Reset style” restores the default look. “Clear local data” in the
         editor’s help menu deletes your image, presets, and local export
-        history. It cannot delete images you have already downloaded or copied.
-        Your browser may also remove local data; private browsing usually clears
-        it when the session ends.
+        history, including that legacy backup. Removing the current screenshot
+        alone leaves your saved styles and legacy backup in place. It cannot
+        delete images you have already downloaded or copied. Your browser may
+        also remove local data; private browsing usually clears it when the
+        session ends.
+      </p>
+      <h2>Batch exports and backups</h2>
+      <p>
+        Additional batch files and prepared ZIPs stay in this tab’s memory and
+        are discarded when you close the batch panel or refresh. Only task
+        metadata joins local export history. Preset JSON contains appearance
+        only. A local recovery backup can include your private image and
+        unparsed browser data; keep it safe. Annotations are visual notes, not a
+        redaction tool.
       </p>
       <h2>Shared devices and browser limits</h2>
       <p>

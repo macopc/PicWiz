@@ -1,10 +1,37 @@
-import { expect, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { expect, type Download, type Page } from "@playwright/test";
 import sharp from "sharp";
-import type { Style } from "../../lib/domain";
+import { SIZES, type Style } from "../../lib/domain";
 import { createStore } from "../../lib/storage";
 
-export const STORE_KEY = "shinyshot:store";
+export const STORE_KEY = "picwiz:store";
+export const LEGACY_STORE_KEY = "shinyshot:store";
 export const SOURCE_COLOR = { r: 235, g: 58, b: 82 };
+
+// Independent acceptance values, rather than dimensions() from the implementation.
+export const OUTPUT_SIZES = {
+  landscape: { width: 1600, height: 900 },
+  square: { width: 1080, height: 1080 },
+  portrait: { width: 1080, height: 1350 },
+  story: { width: 1080, height: 1920 },
+  linkedin: { width: 1200, height: 627 },
+  pinterest: { width: 1000, height: 1500 },
+} as const;
+
+export type StoredAnnotation = {
+  id: string;
+  type: "arrow" | "rectangle" | "text";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+  stroke: 2 | 4 | 8;
+  text: string;
+  fontSize: number;
+  flipX: boolean;
+  flipY: boolean;
+};
 
 export type Source = {
   dataUrl: string;
@@ -14,14 +41,32 @@ export type Source = {
 };
 
 export type StoredState = {
-  composition: { style: Style; source: Source | null; status: string };
-  presets: { id: string; name: string; style: Style }[];
+  version: number;
+  composition: {
+    style: Style;
+    source: Source | null;
+    status: string;
+    annotations: StoredAnnotation[];
+  };
+  presets: {
+    id: string;
+    name: string;
+    style: Style;
+    createdAt: string;
+    updatedAt: string;
+  }[];
   jobs: {
     id: string;
-    kind: "download" | "clipboard";
+    kind: "download" | "clipboard" | "batch";
     status: string;
     width: number;
     height: number;
+    formats: string[];
+    scale: 1 | 2;
+    total: number;
+    completed: number;
+    failed: number;
+    error: string | null;
   }[];
 };
 
@@ -204,6 +249,13 @@ export async function installClipboard(page: Page) {
     };
     state.__clipboardItems = [];
     state.__clipboardWriteCount = 0;
+    // Stub only the OS boundary. Never polyfill ClipboardItem or its PNG support.
+    if (
+      typeof ClipboardItem !== "function" ||
+      !navigator.clipboard?.write ||
+      (typeof ClipboardItem.supports === "function" &&
+        !ClipboardItem.supports("image/png"))
+    ) return;
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: {
@@ -225,6 +277,88 @@ export async function installClipboard(page: Page) {
       },
     });
   });
+}
+
+export async function supportsClipboardPng(page: Page) {
+  return page.evaluate(() =>
+    typeof ClipboardItem === "function" &&
+    !!navigator.clipboard?.write &&
+    (typeof ClipboardItem.supports !== "function" ||
+      ClipboardItem.supports("image/png")),
+  );
+}
+
+export async function downloadBytes(download: Download) {
+  expect(await download.failure()).toBeNull();
+  const path = await download.path();
+  expect(path).not.toBeNull();
+  return readFile(path!);
+}
+
+export async function exportPng(page: Page) {
+  const pending = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export PNG", exact: true }).click();
+  const download = await pending;
+  expect(download.suggestedFilename()).toMatch(/^picwiz-\d+x\d+\.png$/);
+  return downloadBytes(download);
+}
+
+export async function solidFile(
+  name: string,
+  color = SOURCE_COLOR,
+  width = 640,
+  height = 360,
+) {
+  return {
+    name,
+    mimeType: "image/png",
+    buffer: await sharp({
+      create: { width, height, channels: 3, background: color },
+    }).png().toBuffer(),
+  };
+}
+
+export async function openPresets(page: Page) {
+  const opener = page.getByRole("button", { name: "My presets", exact: true });
+  if (!(await page.getByRole("dialog").isVisible())) await opener.click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+}
+
+export async function closeDialog(page: Page) {
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+}
+
+export async function showInspector(page: Page, name: "Style" | "Frame" | "Annotate") {
+  // Desktop may show all inspector sections; mobile exposes semantic tabs or buttons.
+  const tab = page.getByRole("tab", { name, exact: true });
+  if (await tab.isVisible()) await tab.click();
+  else {
+    const button = page.getByRole("button", { name, exact: true });
+    if (await button.isVisible()) await button.click();
+  }
+}
+
+export async function annotationState(page: Page) {
+  return (await readStore(page))!.composition.annotations;
+}
+
+export async function annotationPercent(page: Page, field: "X" | "Y" | "Width" | "Height", value: number) {
+  const input = page.getByLabel(`Annotation ${field}`, { exact: true });
+  await input.fill(String(value));
+  await input.press("Tab");
+}
+
+export async function openBatch(page: Page, formats: (keyof typeof OUTPUT_SIZES)[]) {
+  await page.getByRole("button", { name: "Batch export", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Batch export", exact: true });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("checkbox", { name: "Include current screenshot", exact: true }).check();
+  for (const checkbox of await dialog.getByRole("checkbox", { name: /^Batch size: / }).all()) await checkbox.uncheck();
+  for (const format of formats) {
+    await dialog.getByRole("checkbox", { name: `Batch size: ${SIZES[format].label}`, exact: true }).check();
+  }
+  return dialog;
 }
 
 export async function clipboardPng(page: Page) {

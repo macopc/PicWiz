@@ -4,14 +4,17 @@ import {
   dimensions,
   normalizeStyle,
   SIZES,
+  lookOf,
+  type Look,
+  type SizeId,
   type Style,
 } from "./domain";
+import { validateAnnotations, type Annotation } from "./annotations";
 import { IMAGE_LIMITS, isRasterDataUrl, validDimensions } from "./image-format";
 import { migrateLocalDocument } from "./migrations";
-
 export { AppError } from "./domain";
-export const STORAGE_KEY = "shinyshot:store";
-
+export const STORAGE_KEY = "picwiz:store";
+export const LEGACY_STORAGE_KEY = "shinyshot:store";
 export type Source = {
   dataUrl: string;
   name: string;
@@ -28,16 +31,21 @@ export type Preset = {
 export type ExportJob = {
   id: string;
   compositionId: "current";
-  kind: "download" | "clipboard";
-  status: "pending" | "succeeded" | "failed";
+  kind: "download" | "clipboard" | "batch";
+  status: "pending" | "succeeded" | "failed" | "cancelled";
   createdAt: string;
   completedAt: string | null;
   width: number;
   height: number;
   error: string | null;
+  formats: SizeId[];
+  scale: 1 | 2;
+  total: number;
+  completed: number;
+  failed: number;
 };
 export type Store = {
-  version: 1;
+  version: 2;
   composition: {
     id: "current";
     createdAt: string;
@@ -45,12 +53,14 @@ export type Store = {
     status: "empty" | "ready";
     style: Style;
     source: Source | null;
+    annotations: Annotation[];
   };
   presets: Preset[];
   jobs: ExportJob[];
 };
-
-const snapshots = new WeakMap<Storage, string | null>();
+type Snapshot = { current: string | null; legacy: string | null };
+const snapshots = new WeakMap<Storage, Snapshot>();
+const blocked = new WeakSet<Storage>();
 const fail = (): never => {
   throw new AppError(
     "storage_corrupt",
@@ -80,7 +90,7 @@ function record(value: unknown, keys: string[]): Record<string, unknown> {
   return value;
 }
 
-function style(value: unknown): Style {
+function strictStyle(value: unknown): Style {
   const input = record(value, Object.keys(DEFAULT_STYLE));
   const normalized = normalizeStyle(input);
   if (Object.entries(normalized).some(([key, val]) => input[key] !== val))
@@ -104,109 +114,102 @@ function presetName(value: unknown): string {
   return name;
 }
 
-function validateStore(value: unknown): Store {
-  if (
-    isRecord(value) &&
-    typeof value.version === "number" &&
-    value.version > 1
-  ) {
+export function validateStore(value: unknown): Store {
+  if (isRecord(value) && typeof value.version === "number" && value.version > 2)
     throw new AppError(
       "storage_version",
-      "This browser data was saved by a newer Shinyshot version. It has been preserved.",
+      "This browser data was saved by a newer PicWiz version. It has been preserved.",
     );
-  }
   const root = record(value, ["version", "composition", "presets", "jobs"]);
   if (
-    root.version !== 1 ||
+    root.version !== 2 ||
     !Array.isArray(root.presets) ||
     root.presets.length > 24 ||
     !Array.isArray(root.jobs) ||
     root.jobs.length > 20
   )
     return fail();
-  const composition = record(root.composition, [
+  const c = record(root.composition, [
     "id",
     "createdAt",
     "updatedAt",
     "status",
     "style",
     "source",
+    "annotations",
   ]);
   if (
-    composition.id !== "current" ||
-    !isDate(composition.createdAt) ||
-    !isDate(composition.updatedAt) ||
-    composition.updatedAt < composition.createdAt
+    c.id !== "current" ||
+    !isDate(c.createdAt) ||
+    !isDate(c.updatedAt) ||
+    c.updatedAt < c.createdAt ||
+    (c.status !== "empty" && c.status !== "ready")
   )
     return fail();
-  if (composition.status !== "empty" && composition.status !== "ready")
-    return fail();
   let source: Source | null = null;
-  if (composition.source !== null) {
-    const input = record(composition.source, [
-      "dataUrl",
-      "name",
-      "width",
-      "height",
-    ]);
+  if (c.source !== null) {
+    const s = record(c.source, ["dataUrl", "name", "width", "height"]);
     if (
-      !isRasterDataUrl(input.dataUrl) ||
-      typeof input.name !== "string" ||
-      input.name.length < 1 ||
-      input.name.length > 120 ||
-      /[\u0000-\u001f\u007f/\\]/.test(input.name) ||
-      typeof input.width !== "number" ||
-      typeof input.height !== "number" ||
-      !validDimensions(input.width, input.height, IMAGE_LIMITS.normalizedEdge)
+      !isRasterDataUrl(s.dataUrl) ||
+      typeof s.name !== "string" ||
+      s.name.length < 1 ||
+      s.name.length > 120 ||
+      /[\u0000-\u001f\u007f/\\]/.test(s.name) ||
+      typeof s.width !== "number" ||
+      typeof s.height !== "number" ||
+      !validDimensions(s.width, s.height, IMAGE_LIMITS.normalizedEdge)
     )
       return fail();
     source = {
-      dataUrl: input.dataUrl,
-      name: input.name,
-      width: input.width,
-      height: input.height,
+      dataUrl: s.dataUrl,
+      name: s.name,
+      width: s.width,
+      height: s.height,
     };
   }
-  if ((composition.status === "ready") !== (source !== null)) return fail();
-
-  const ids = new Set<string>();
-  const names = new Set<string>();
+  let annotations: Annotation[];
+  try {
+    annotations = validateAnnotations(c.annotations);
+  } catch {
+    return fail();
+  }
+  if (
+    (c.status === "ready") !== (source !== null) ||
+    (!source && annotations.length)
+  )
+    return fail();
+  const presetIds = new Set<string>(),
+    names = new Set<string>();
   const presets = root.presets.map((value): Preset => {
-    const input = record(value, [
-      "id",
-      "name",
-      "style",
-      "createdAt",
-      "updatedAt",
-    ]);
+    const p = record(value, ["id", "name", "style", "createdAt", "updatedAt"]);
     if (
-      !isId(input.id) ||
-      ids.has(input.id) ||
-      !isDate(input.createdAt) ||
-      !isDate(input.updatedAt) ||
-      input.updatedAt < input.createdAt
+      !isId(p.id) ||
+      presetIds.has(p.id) ||
+      !isDate(p.createdAt) ||
+      !isDate(p.updatedAt) ||
+      p.updatedAt < p.createdAt
     )
       return fail();
     let name: string;
     try {
-      name = presetName(input.name);
+      name = presetName(p.name);
     } catch {
       return fail();
     }
-    if (name !== input.name || names.has(name.toLowerCase())) return fail();
-    ids.add(input.id);
+    if (name !== p.name || names.has(name.toLowerCase())) return fail();
+    presetIds.add(p.id);
     names.add(name.toLowerCase());
     return {
-      id: input.id,
+      id: p.id,
       name,
-      style: style(input.style),
-      createdAt: input.createdAt,
-      updatedAt: input.updatedAt,
+      style: strictStyle(p.style),
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
     };
   });
-  ids.clear();
+  const ids = new Set<string>();
   const jobs = root.jobs.map((value): ExportJob => {
-    const input = record(value, [
+    const j = record(value, [
       "id",
       "compositionId",
       "kind",
@@ -216,58 +219,106 @@ function validateStore(value: unknown): Store {
       "width",
       "height",
       "error",
+      "formats",
+      "scale",
+      "total",
+      "completed",
+      "failed",
     ]);
     if (
-      !isId(input.id) ||
-      ids.has(input.id) ||
-      input.compositionId !== "current" ||
-      (input.kind !== "download" && input.kind !== "clipboard") ||
-      !isDate(input.createdAt) ||
-      typeof input.width !== "number" ||
-      typeof input.height !== "number" ||
-      !validDimensions(input.width, input.height) ||
-      !Object.values(SIZES).some(({ width, height }) =>
-        [1, 2].some(
-          (scale) =>
-            input.width === width * scale && input.height === height * scale,
-        ),
+      !isId(j.id) ||
+      ids.has(j.id) ||
+      j.compositionId !== "current" ||
+      !["download", "clipboard", "batch"].includes(j.kind as string) ||
+      !isDate(j.createdAt)
+    )
+      return fail();
+    if (
+      !Array.isArray(j.formats) ||
+      j.formats.length < 1 ||
+      j.formats.length > 3 ||
+      new Set(j.formats).size !== j.formats.length ||
+      !j.formats.every(
+        (s) => typeof s === "string" && Object.hasOwn(SIZES, s),
+      ) ||
+      (j.scale !== 1 && j.scale !== 2)
+    )
+      return fail();
+    if (
+      ![j.total, j.completed, j.failed].every(
+        (n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0,
       )
     )
       return fail();
-    if (input.status === "pending") {
-      if (input.completedAt !== null || input.error !== null) return fail();
-    } else if (input.status === "succeeded" || input.status === "failed") {
+    const total = j.total as number,
+      completed = j.completed as number,
+      failed = j.failed as number;
+    const formats = j.formats as SizeId[];
+    if (
+      total < 1 ||
+      total > 30 ||
+      completed + failed > total ||
+      (j.kind !== "batch" && (total !== 1 || formats.length !== 1)) ||
+      j.width !== SIZES[formats[0]].width * j.scale ||
+      j.height !== SIZES[formats[0]].height * j.scale
+    )
+      return fail();
+    if (j.status === "pending") {
+      if (j.completedAt !== null || j.error !== null) return fail();
+    } else if (
+      ["succeeded", "failed", "cancelled"].includes(j.status as string)
+    ) {
       if (
-        !isDate(input.completedAt) ||
-        input.completedAt < input.createdAt ||
-        (input.status === "succeeded"
-          ? input.error !== null
-          : !isErrorCode(input.error))
+        !isDate(j.completedAt) ||
+        j.completedAt < j.createdAt ||
+        (j.status !== "cancelled" && completed + failed !== total)
+      )
+        return fail();
+      if (
+        j.status === "succeeded"
+          ? failed !== 0 || j.error !== null
+          : !isErrorCode(j.error)
+      )
+        return fail();
+      if (
+        j.status === "failed" &&
+        failed === 0 &&
+        !(
+          completed === total &&
+          (j.error === "interrupted" ||
+            (j.kind === "batch" && j.error === "zip_failed"))
+        )
       )
         return fail();
     } else return fail();
-    ids.add(input.id);
+    ids.add(j.id);
     return {
-      id: input.id,
+      id: j.id,
       compositionId: "current",
-      kind: input.kind,
-      status: input.status,
-      createdAt: input.createdAt,
-      completedAt: input.completedAt as string | null,
-      width: input.width,
-      height: input.height,
-      error: input.error as string | null,
+      kind: j.kind as ExportJob["kind"],
+      status: j.status as ExportJob["status"],
+      createdAt: j.createdAt,
+      completedAt: j.completedAt as string | null,
+      width: j.width as number,
+      height: j.height as number,
+      error: j.error as string | null,
+      formats: [...formats],
+      scale: j.scale,
+      total,
+      completed,
+      failed,
     };
   });
   return {
-    version: 1,
+    version: 2,
     composition: {
       id: "current",
-      createdAt: composition.createdAt,
-      updatedAt: composition.updatedAt,
-      status: composition.status,
-      style: style(composition.style),
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+      status: c.status,
+      style: strictStyle(c.style),
       source,
+      annotations,
     },
     presets,
     jobs,
@@ -283,10 +334,12 @@ function parse(raw: string): Store {
   }
   return validateStore(migrateLocalDocument(value, now()));
 }
-
-function read(storage: Storage): string | null {
+function read(storage: Storage): Snapshot {
   try {
-    return storage.getItem(STORAGE_KEY);
+    return {
+      current: storage.getItem(STORAGE_KEY),
+      legacy: storage.getItem(LEGACY_STORAGE_KEY),
+    };
   } catch {
     throw new AppError(
       "storage_unavailable",
@@ -294,84 +347,20 @@ function read(storage: Storage): string | null {
     );
   }
 }
-
-function uniqueId(): string {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  if (globalThis.crypto?.getRandomValues) {
-    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
-    bytes[6] = (bytes[6] & 15) | 64;
-    bytes[8] = (bytes[8] & 63) | 128;
-    const hex = Array.from(bytes, (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  }
+function same(a: Snapshot, b: Snapshot): boolean {
+  return a.current === b.current && a.legacy === b.legacy;
+}
+function conflict(): never {
   throw new AppError(
-    "unsupported_browser",
-    "This browser cannot generate local record IDs.",
+    "storage_conflict",
+    "Another tab changed your saved composition. Reload before saving again.",
   );
 }
-
-export function createStore(): Store {
-  return validateStore(migrateLocalDocument(null, now()));
+function authoritative(snapshot: Snapshot): Store | null {
+  const raw = snapshot.current ?? snapshot.legacy;
+  return raw === null ? null : parse(raw);
 }
-
-export function loadStore(storage: Storage): Store {
-  const raw = read(storage);
-  snapshots.set(storage, raw);
-  if (raw === null) return createStore();
-  const store = parse(raw);
-  const timestamp = now();
-  return {
-    ...store,
-    jobs: store.jobs.map((job) =>
-      job.status === "pending"
-        ? {
-            ...job,
-            status: "failed",
-            completedAt: timestamp < job.createdAt ? job.createdAt : timestamp,
-            error: "interrupted",
-          }
-        : job,
-    ),
-  };
-}
-
-export function saveStore(storage: Storage, store: Store): void {
-  const normalized = validateStore(store);
-  const current = read(storage);
-  // Even a caller that skipped loadStore cannot overwrite corrupt or future data.
-  const previous = current === null ? null : parse(current);
-  if (snapshots.has(storage) && snapshots.get(storage) !== current) {
-    throw new AppError(
-      "storage_conflict",
-      "Another tab changed your saved composition. Reload before saving again.",
-    );
-  }
-  for (const job of previous?.jobs ?? []) {
-    const next = normalized.jobs.find((value) => value.id === job.id);
-    if (!next) continue; // Old records can be removed by retention or an explicit reset.
-    if (
-      job.status !== "pending" &&
-      JSON.stringify(job) !== JSON.stringify(next)
-    ) {
-      throw new AppError(
-        "job_terminal",
-        "A completed export record cannot be changed.",
-      );
-    }
-    if (
-      ["compositionId", "kind", "createdAt", "width", "height"].some(
-        (key) => job[key as keyof ExportJob] !== next[key as keyof ExportJob],
-      )
-    ) {
-      throw new AppError(
-        "job_immutable",
-        "An export's submitted details cannot be changed.",
-      );
-    }
-  }
-  const raw = JSON.stringify(normalized);
+function write(storage: Storage, raw: string): void {
   try {
     storage.setItem(STORAGE_KEY, raw);
   } catch (error) {
@@ -382,13 +371,167 @@ export function saveStore(storage: Storage, store: Store): void {
     throw new AppError(
       quota ? "storage_quota" : "storage_unavailable",
       quota
-        ? "Browser storage is full. Clear a saved image or free site storage, then retry."
+        ? "Browser storage is full. Free site storage, then retry."
         : "The browser could not save your changes. Retry after enabling site storage.",
     );
   }
-  snapshots.set(storage, raw);
 }
-
+function uniqueId(): string {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  throw new AppError(
+    "unsupported_browser",
+    "This browser cannot generate local record IDs.",
+  );
+}
+export function createStore(): Store {
+  return validateStore(migrateLocalDocument(null, now()));
+}
+export function loadStore(storage: Storage): Store {
+  if (blocked.has(storage))
+    throw new AppError(
+      "storage_unavailable",
+      "Local data was only partly cleared. Retry clearing or reload before saving.",
+    );
+  const snapshot = read(storage);
+  let store = authoritative(snapshot) ?? createStore();
+  const interrupted = store.jobs.some((j) => j.status === "pending");
+  const timestamp = now();
+  if (interrupted)
+    store = {
+      ...store,
+      jobs: store.jobs.map((j) =>
+        j.status === "pending"
+          ? {
+              ...j,
+              status: "failed",
+              completedAt: timestamp < j.createdAt ? j.createdAt : timestamp,
+              error: "interrupted",
+              failed: j.total - j.completed,
+            }
+          : j,
+      ),
+    };
+  // Adoption and pending recovery commit a single fully validated envelope, never touch legacy.
+  if (
+    (snapshot.current === null && snapshot.legacy !== null) ||
+    (snapshot.current !== null && JSON.parse(snapshot.current).version !== 2) ||
+    interrupted
+  ) {
+    validateStore(store);
+    if (!same(snapshot, read(storage))) return conflict();
+    const raw = JSON.stringify(store);
+    write(storage, raw);
+    const after = read(storage);
+    if (after.current !== raw || after.legacy !== snapshot.legacy)
+      return conflict();
+    snapshots.set(storage, after);
+  } else {
+    if (!same(snapshot, read(storage))) return conflict();
+    snapshots.set(storage, snapshot);
+  }
+  return store;
+}
+function checkJobs(previous: Store | null, next: Store): void {
+  if (!previous) return;
+  const oldIds = new Set(previous.jobs.map((j) => j.id));
+  const added = next.jobs.filter((j) => !oldIds.has(j.id));
+  // Only appending new attempts may evict the oldest records at the fixed retention cap.
+  const expected = (
+    added.length
+      ? [...previous.jobs, ...added]
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+          .slice(-20)
+      : previous.jobs
+  ).map((j) => j.id);
+  if (JSON.stringify(expected) !== JSON.stringify(next.jobs.map((j) => j.id)))
+    throw new AppError(
+      "job_retention",
+      "Export history can only remove its oldest records when a new attempt is added.",
+    );
+  for (const job of previous.jobs) {
+    const target = next.jobs.find((j) => j.id === job.id);
+    if (!target) continue;
+    if (
+      job.status !== "pending" &&
+      JSON.stringify(job) !== JSON.stringify(target)
+    )
+      throw new AppError(
+        "job_terminal",
+        "A completed export record cannot be changed.",
+      );
+    for (const key of [
+      "compositionId",
+      "kind",
+      "createdAt",
+      "width",
+      "height",
+      "formats",
+      "scale",
+      "total",
+    ] as const)
+      if (JSON.stringify(job[key]) !== JSON.stringify(target[key]))
+        throw new AppError(
+          "job_immutable",
+          "An export's submitted details cannot be changed.",
+        );
+    if (target.completed < job.completed || target.failed < job.failed)
+      throw new AppError(
+        "job_progress",
+        "Export counts cannot move backwards.",
+      );
+  }
+}
+export function saveStore(storage: Storage, input: Store): void {
+  if (blocked.has(storage))
+    throw new AppError(
+      "storage_unavailable",
+      "Local data was only partly cleared. Retry clearing or reload before saving.",
+    );
+  const store = validateStore(input),
+    current = read(storage);
+  const previous = authoritative(current); // Validate raw data even for callers that never loaded.
+  const snapshot = snapshots.get(storage);
+  if (snapshot && !same(snapshot, current)) return conflict();
+  checkJobs(previous, store);
+  if (!same(current, read(storage))) return conflict();
+  const raw = JSON.stringify(store);
+  write(storage, raw);
+  const after = read(storage);
+  if (after.current !== raw || after.legacy !== current.legacy)
+    return conflict();
+  snapshots.set(storage, after);
+}
+export function clearStore(storage: Storage): void {
+  blocked.add(storage);
+  try {
+    storage.removeItem(LEGACY_STORAGE_KEY);
+    storage.removeItem(STORAGE_KEY);
+    const after = read(storage);
+    if (after.current !== null || after.legacy !== null)
+      throw new Error("incomplete");
+    snapshots.set(storage, after);
+    blocked.delete(storage);
+  } catch {
+    throw new AppError(
+      "storage_clear",
+      "The browser could not clear all local data. Retry clearing; saving is blocked.",
+    );
+  }
+}
+export function backupLocalData(storage: Storage): string {
+  const raw = read(storage);
+  return JSON.stringify(
+    {
+      app: "picwiz",
+      type: "local-data-backup",
+      version: 1,
+      createdAt: now(),
+      keys: { [STORAGE_KEY]: raw.current, [LEGACY_STORAGE_KEY]: raw.legacy },
+    },
+    null,
+    2,
+  );
+}
 export function addPreset(store: Store, name: string, input: Style): Store {
   const current = validateStore(store);
   const normalizedName = presetName(name);
@@ -457,24 +600,155 @@ export function deletePreset(store: Store, id: string): Store {
   };
 }
 
-export function createJob(
+export function updatePreset(store: Store, id: string, input: Style): Store {
+  const current = validateStore(store);
+  if (!current.presets.some((p) => p.id === id))
+    throw new AppError("preset_not_found", "That preset no longer exists.");
+  return {
+    ...current,
+    presets: current.presets.map((p) =>
+      p.id === id
+        ? {
+            ...p,
+            style: applyPresetStyle(p.style, input),
+            updatedAt: now() < p.createdAt ? p.createdAt : now(),
+          }
+        : p,
+    ),
+  };
+}
+function applyPresetStyle(previous: Style, input: Style): Style {
+  return {
+    ...normalizeStyle(input),
+    size: previous.size,
+    scale: previous.scale,
+  };
+}
+const LOOK_KEYS = [
+  "background",
+  "padding",
+  "radius",
+  "shadow",
+  "frame",
+  "appearance",
+];
+function strictLook(value: unknown): Look {
+  const input = record(value, LOOK_KEYS);
+  const result = lookOf(normalizeStyle(input));
+  if (Object.entries(result).some(([key, value]) => input[key] !== value))
+    return fail();
+  return result;
+}
+export function exportPresets(store: Store): string {
+  const current = validateStore(store);
+  if (!current.presets.length)
+    throw new AppError(
+      "preset_empty",
+      "Save a style preset before exporting a preset file.",
+    );
+  return JSON.stringify(
+    {
+      app: "picwiz",
+      type: "style-presets",
+      version: 1,
+      presets: current.presets.map((p) => ({
+        name: p.name,
+        style: lookOf(p.style),
+      })),
+    },
+    null,
+    2,
+  );
+}
+export function importPresets(
+  store: Store,
+  json: string,
+): { store: Store; added: number; skipped: number } {
+  const current = validateStore(store);
+  if (
+    typeof json !== "string" ||
+    json.length > 100 * 1024 ||
+    new TextEncoder().encode(json).length > 100 * 1024
+  )
+    throw new AppError(
+      "preset_file_size",
+      "Preset files must be at most 100 KiB.",
+    );
+  let entries: { name: string; style: Look }[];
+  try {
+    const root = record(JSON.parse(json), [
+      "app",
+      "type",
+      "version",
+      "presets",
+    ]);
+    if (
+      root.app !== "picwiz" ||
+      root.type !== "style-presets" ||
+      root.version !== 1 ||
+      !Array.isArray(root.presets) ||
+      root.presets.length < 1 ||
+      root.presets.length > 24
+    )
+      return fail();
+    entries = root.presets.map((value) => {
+      const p = record(value, ["name", "style"]);
+      return { name: presetName(p.name), style: strictLook(p.style) };
+    });
+  } catch {
+    throw new AppError(
+      "preset_file",
+      "This is not a valid PicWiz style preset file. Nothing was imported.",
+    );
+  }
+  let result = current,
+    added = 0,
+    skipped = 0;
+  for (const entry of entries) {
+    let suffix = 1;
+    while (true) {
+      const ending = suffix === 1 ? "" : ` (${suffix})`;
+      const name = entry.name.slice(0, 40 - ending.length).trimEnd() + ending;
+      const existing = result.presets.find(
+        (p) => p.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (!existing) {
+        result = addPreset(result, name, { ...DEFAULT_STYLE, ...entry.style });
+        added++;
+        break;
+      }
+      if (
+        JSON.stringify(lookOf(existing.style)) === JSON.stringify(entry.style)
+      ) {
+        skipped++;
+        break;
+      }
+      suffix++;
+    }
+  }
+  return { store: result, added, skipped };
+}
+function appendJob(
   store: Store,
   kind: ExportJob["kind"],
-  input: Style,
-  id: string = uniqueId(),
+  formats: SizeId[],
+  scale: 1 | 2,
+  total: number,
+  id: string,
 ): Store {
   const current = validateStore(store);
-  if (kind !== "download" && kind !== "clipboard")
-    throw new AppError(
-      "job_kind",
-      "Choose a PNG download or clipboard export.",
-    );
   if (!isId(id)) throw new AppError("job_id", "The export ID is invalid.");
-  if (current.jobs.some((job) => job.id === id))
+  if (current.jobs.some((j) => j.id === id))
     throw new AppError(
       "job_duplicate",
       "That export was already submitted. Retry with a new export ID.",
     );
+  if (
+    !Array.isArray(formats) ||
+    !formats.length ||
+    !Object.hasOwn(SIZES, formats[0])
+  )
+    throw new AppError("job_formats", "Choose supported output sizes.");
   const job: ExportJob = {
     id,
     compositionId: "current",
@@ -482,25 +756,56 @@ export function createJob(
     status: "pending",
     createdAt: now(),
     completedAt: null,
-    ...dimensions(input),
+    ...dimensions({ ...DEFAULT_STYLE, size: formats[0], scale }),
     error: null,
+    formats: [...formats],
+    scale,
+    total,
+    completed: 0,
+    failed: 0,
   };
-  return {
+  return validateStore({
     ...current,
     jobs: [...current.jobs, job]
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .slice(-20),
-  };
+  });
 }
-
-export function finishJob(
+export function createJob(
+  store: Store,
+  kind: ExportJob["kind"],
+  input: Style,
+  id: string = uniqueId(),
+): Store {
+  if (kind !== "download" && kind !== "clipboard")
+    throw new AppError(
+      "job_kind",
+      "Choose a PNG download or clipboard export.",
+    );
+  const style = normalizeStyle(input);
+  return appendJob(store, kind, [style.size], style.scale, 1, id);
+}
+export function createBatchJob(
+  store: Store,
+  formats: SizeId[],
+  scale: 1 | 2,
+  total: number,
+  id: string = uniqueId(),
+): Store {
+  return appendJob(store, "batch", formats, scale, total, id);
+}
+export function finishBatchJob(
   store: Store,
   id: string,
-  status: "succeeded" | "failed",
-  error?: string,
+  result: {
+    completed: number;
+    failed: number;
+    cancelled?: boolean;
+    error?: string;
+  },
 ): Store {
-  const current = validateStore(store);
-  const job = current.jobs.find((value) => value.id === id);
+  const current = validateStore(store),
+    job = current.jobs.find((j) => j.id === id);
   if (!job)
     throw new AppError(
       "job_not_found",
@@ -511,23 +816,55 @@ export function finishJob(
       "job_terminal",
       "A completed export record cannot be changed.",
     );
+  if (result.completed < job.completed || result.failed < job.failed)
+    throw new AppError("job_progress", "Export counts cannot move backwards.");
+  const status = result.cancelled
+    ? "cancelled"
+    : result.failed || result.error
+      ? "failed"
+      : "succeeded";
+  const error =
+    status === "succeeded"
+      ? null
+      : isErrorCode(result.error)
+        ? result.error
+        : status === "cancelled"
+          ? "cancelled"
+          : result.completed
+            ? "batch_partial"
+            : "export_failed";
+  return validateStore({
+    ...current,
+    jobs: current.jobs.map((j) =>
+      j.id === id
+        ? {
+            ...j,
+            status,
+            completed: result.completed,
+            failed: result.failed,
+            error,
+            completedAt: now() < j.createdAt ? j.createdAt : now(),
+          }
+        : j,
+    ),
+  });
+}
+export function finishJob(
+  store: Store,
+  id: string,
+  status: "succeeded" | "failed",
+  error?: string,
+): Store {
   if (status !== "succeeded" && status !== "failed")
     throw new AppError("job_status", "The export result is invalid.");
-  const code =
-    status === "failed" ? (isErrorCode(error) ? error : "export_failed") : null;
-  const timestamp = now();
-  return {
-    ...current,
-    jobs: current.jobs.map((value) =>
-      value.id === id
-        ? {
-            ...value,
-            status,
-            completedAt:
-              timestamp < value.createdAt ? value.createdAt : timestamp,
-            error: code,
-          }
-        : value,
-    ),
-  };
+  return finishBatchJob(store, id, {
+    completed: status === "succeeded" ? 1 : 0,
+    failed: status === "failed" ? 1 : 0,
+    error:
+      status === "failed"
+        ? isErrorCode(error)
+          ? error
+          : "export_failed"
+        : undefined,
+  });
 }

@@ -7,7 +7,7 @@ describe("versioned local migrations", () => {
   const instant = "2026-10-23T13:00:00.000Z";
   it("initializes a relational envelope through migration 001", () => {
     expect(migrateLocalDocument(null, instant)).toMatchObject({
-      version: 1,
+      version: 2,
       composition: {
         id: "current",
         createdAt: instant,
@@ -20,7 +20,7 @@ describe("versioned local migrations", () => {
   });
   it("upgrades an explicit empty v0 without changing its input", () => {
     const old = { version: 0 };
-    expect(migrateLocalDocument(old, instant)).toHaveProperty("version", 1);
+    expect(migrateLocalDocument(old, instant)).toHaveProperty("version", 2);
     expect(old).toEqual({ version: 0 });
     expect(() =>
       migrate001({ version: 0, source: "unrecognized data" }, instant),

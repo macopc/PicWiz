@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 // A deterministic, fictional product screenshot. No network or user data.
 const text = (x, y, value, size = 14, fill = "#7c8093", weight = 400) =>
@@ -126,8 +126,79 @@ await writeFile(
     },
     null,
     2,
-  ),
+  ) + "\n",
 );
-console.log(
-  "Seeded example screenshot, invalid-file fixture, and empty/preset/interrupted-export recovery state.",
-);
+
+// Keep the V1 test fixtures above stable: migration/recovery tests depend on them.
+// V2 demo documents live separately and are never installed in anyone's browser.
+await mkdir("public/fixtures", { recursive: true });
+const example = await readFile("public/example.png");
+await writeFile("public/fixtures/dashboard.png", example);
+await sharp(Buffer.from(svg.replaceAll("#9681e9", "#20a589").replaceAll("Overview", "Release notes")))
+  .png()
+  .toFile("public/fixtures/release-notes.png");
+await sharp(Buffer.from(svg.replaceAll("#a289e4", "#2585e6").replaceAll("Overview", "Analytics")))
+  .png()
+  .toFile("public/fixtures/analytics.png");
+await writeFile("public/fixtures/not-an-image.txt", "A friendly rejection keeps your screenshot safe.");
+
+const style = {
+  background: "violet", padding: 96, radius: 12, shadow: 36,
+  frame: "none", appearance: "light", size: "landscape", scale: 1,
+};
+const source = {
+  dataUrl: `data:image/png;base64,${example.toString("base64")}`,
+  name: "dashboard.png", width: 1440, height: 900,
+};
+const annotations = [
+  { id: "seed-arrow", type: "arrow", x: 0.43, y: 0.3, width: 0.19, height: 0.18, color: "#ef6351", stroke: 4, text: "", fontSize: 0.03, flipX: false, flipY: false },
+  { id: "seed-rectangle", type: "rectangle", x: 0.2, y: 0.22, width: 0.24, height: 0.18, color: "#7756dc", stroke: 4, text: "", fontSize: 0.03, flipX: false, flipY: false },
+  { id: "seed-text", type: "text", x: 0.53, y: 0.17, width: 0.32, height: 0.12, color: "#23212b", stroke: 4, text: "A clearer product update", fontSize: 0.03, flipX: false, flipY: false },
+];
+const presets = [{
+  id: "seed-product-updates", name: "Product updates",
+  style: { ...style, background: "ocean", padding: 104, radius: 14, shadow: 40, frame: "browser" },
+  createdAt: timestamp, updatedAt: timestamp,
+}];
+const composition = {
+  id: "current", createdAt: timestamp, updatedAt: timestamp,
+  status: "ready", source, style, annotations,
+};
+const job = {
+  id: "seed-download", compositionId: "current", kind: "download",
+  status: "succeeded", createdAt: timestamp, completedAt: timestamp,
+  width: 1600, height: 900, error: null,
+  formats: ["landscape"], scale: 1, total: 1, completed: 1, failed: 0,
+};
+const happy = { version: 2, composition, presets, jobs: [job] };
+const empty = {
+  version: 2,
+  composition: { ...composition, status: "empty", source: null, annotations: [] },
+  presets: [], jobs: [],
+};
+const failed = {
+  ...happy,
+  jobs: [
+    { ...job, id: "seed-clipboard-denied", kind: "clipboard", status: "failed", completed: 0, failed: 1, error: "clipboard_denied" },
+    { ...job, id: "seed-partial-batch", kind: "batch", status: "failed", formats: ["landscape", "square"], total: 6, completed: 4, failed: 2, error: "batch_partial" },
+  ],
+};
+const interrupted = {
+  ...happy,
+  jobs: [{ ...job, id: "seed-interrupted-batch", kind: "batch", status: "pending", completedAt: null, formats: ["landscape", "square"], total: 6, completed: 2, failed: 0 }],
+};
+const legacy = JSON.parse(await readFile("tests/fixtures/recovery-state.json", "utf8"));
+legacy.composition = { ...legacy.composition, status: "ready", source };
+const { size: _size, scale: _scale, ...look } = presets[0].style;
+const documents = {
+  "v2-happy-store.json": happy,
+  "v2-empty-store.json": empty,
+  "v2-failed-store.json": failed,
+  "v2-interrupted-store.json": interrupted,
+  "legacy-v1-store.json": legacy,
+  "style-presets.json": { app: "picwiz", type: "style-presets", version: 1, presets: [{ name: presets[0].name, style: look }] },
+};
+for (const [name, value] of Object.entries(documents)) {
+  await writeFile(`public/fixtures/${name}`, `${JSON.stringify(value, null, 2)}\n`);
+}
+console.log("Seeded /example.png, preserved V1 test fixtures, and synthetic V2 images/states in public/fixtures. No browser data changed.");

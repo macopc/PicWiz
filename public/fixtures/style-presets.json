@@ -1,0 +1,18 @@
+{
+  "app": "picwiz",
+  "type": "style-presets",
+  "version": 1,
+  "presets": [
+    {
+      "name": "Product updates",
+      "style": {
+        "background": "ocean",
+        "padding": 104,
+        "radius": 14,
+        "shadow": 40,
+        "frame": "browser",
+        "appearance": "light"
+      }
+    }
+  ]
+}

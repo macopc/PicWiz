@@ -9,7 +9,7 @@ export default function Home() {
       <Editor />
       <noscript>
         <div className="noscript">
-          Shinyshot keeps your screenshots on your device. Enable JavaScript to
+          PicWiz keeps your screenshots on your device. Enable JavaScript to
           import, style, and export an image. No sign-in or upload is needed.
         </div>
       </noscript>

@@ -82,11 +82,13 @@ function decode(src: string, adapter: ImageAdapter): Promise<HTMLImageElement> {
         assertImageDimensions(image.naturalWidth, image.naturalHeight);
         resolve(image);
       } catch (error) {
+        image.removeAttribute?.("src");
         reject(error);
       }
     };
     image.onerror = () => {
       cleanup();
+      image.removeAttribute?.("src");
       reject(
         new AppError(
           "image_decode",
@@ -99,6 +101,7 @@ function decode(src: string, adapter: ImageAdapter): Promise<HTMLImageElement> {
       image.src = src;
     } catch {
       cleanup();
+      image.removeAttribute?.("src");
       reject(
         new AppError("image_decode", "This browser could not open the image."),
       );
@@ -183,6 +186,7 @@ export async function importImage(
     );
   }
   let original: HTMLImageElement | undefined;
+  let canvas: HTMLCanvasElement | undefined;
   try {
     original = await decode(url, adapter);
     const factor = Math.min(
@@ -192,7 +196,7 @@ export async function importImage(
     );
     let width = Math.max(1, Math.round(original.naturalWidth * factor));
     let height = Math.max(1, Math.round(original.naturalHeight * factor));
-    const canvas = adapter.createCanvas();
+    canvas = adapter.createCanvas();
     let dataUrl = "";
     // Redraw from the decoded original on each resize to avoid cumulative resampling.
     for (let attempt = 0; attempt < 16; attempt++) {
@@ -216,12 +220,16 @@ export async function importImage(
       }
       const fitsStorage = dataUrl.length <= IMAGE_LIMITS.dataUrlLength;
       if (isRasterDataUrl(dataUrl)) {
+        // Original decode and normalization surface are no longer needed.
+        original.removeAttribute?.("src");
         const image = await loadImage(dataUrl, adapter);
-        if (image.naturalWidth !== width || image.naturalHeight !== height)
+        if (image.naturalWidth !== width || image.naturalHeight !== height) {
+          image.removeAttribute?.("src");
           throw new AppError(
             "image_decode",
             "The normalized image has unexpected dimensions.",
           );
+        }
         const name =
           (file.name.split(/[\\/]/).pop() ?? "screenshot")
             .replace(/[\u0000-\u001f\u007f]/g, "")
@@ -250,19 +258,94 @@ export async function importImage(
   } finally {
     adapter.revokeObjectURL(url);
     original?.removeAttribute?.("src");
+    if (canvas) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+  }
+}
+
+let pngEncoderBusy = false;
+const pngEncoderListeners = new Set<(busy: boolean) => void>();
+export function isPngEncoderBusy(): boolean {
+  return pngEncoderBusy;
+}
+export function subscribePngEncoder(
+  listener: (busy: boolean) => void,
+): () => void {
+  pngEncoderListeners.add(listener);
+  return () => {
+    pngEncoderListeners.delete(listener);
+  };
+}
+function setEncoderBusy(busy: boolean): void {
+  if (pngEncoderBusy === busy) return;
+  pngEncoderBusy = busy;
+  for (const listener of pngEncoderListeners) {
+    try {
+      listener(busy);
+    } catch {
+      /* A UI subscriber cannot interfere with native settlement. */
+    }
   }
 }
 
 export function canvasToPng(
   canvas: HTMLCanvasElement,
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<Blob> {
-  const encoding = new Promise<Blob>((resolve, reject) => {
+  if (options.signal?.aborted)
+    return Promise.reject(
+      new AppError("cancelled", "PNG export was cancelled."),
+    );
+  if (pngEncoderBusy)
+    return Promise.reject(
+      new AppError(
+        "png_busy",
+        "Waiting for the browser to finish encoding. If it never responds, reload this page.",
+      ),
+    );
+  return new Promise((resolve, reject) => {
+    let settled = false,
+      nativeSettled = false;
+    const finish = (error?: AppError, blob?: Blob) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", abort);
+      if (error) reject(error);
+      else resolve(blob!);
+    };
+    const abort = () =>
+      finish(
+        new AppError(
+          "cancelled",
+          "PNG export was cancelled. Waiting for the browser to finish encoding.",
+        ),
+      );
+    const timer = setTimeout(
+      () =>
+        finish(
+          new AppError(
+            "png_timeout",
+            "PNG encoding took too long. Waiting for the browser to finish; reload if it never responds.",
+          ),
+        ),
+      options.timeoutMs ?? TIMEOUT_MS,
+    );
+    options.signal?.addEventListener("abort", abort, { once: true });
+    setEncoderBusy(true);
     try {
       canvas.toBlob((blob) => {
-        if (blob && blob.size > 0 && blob.type === "image/png") resolve(blob);
+        // Timeout/abort only settle the application promise. Only this native callback unlocks.
+        if (nativeSettled) return;
+        nativeSettled = true;
+        setEncoderBusy(false);
+        if (settled) return; // Discard every late result.
+        if (blob && blob.size > 0 && blob.type === "image/png")
+          finish(undefined, blob);
         else
-          reject(
+          finish(
             new AppError(
               "png_encode",
               "This browser could not encode a PNG. Try exporting again.",
@@ -270,7 +353,11 @@ export function canvasToPng(
           );
       }, "image/png");
     } catch {
-      reject(
+      if (!nativeSettled) {
+        nativeSettled = true;
+        setEncoderBusy(false);
+      }
+      finish(
         new AppError(
           "png_encode",
           "This browser could not encode this canvas as a PNG.",
@@ -278,12 +365,6 @@ export function canvasToPng(
       );
     }
   });
-  return bounded(
-    encoding,
-    options.timeoutMs ?? TIMEOUT_MS,
-    "png_timeout",
-    "PNG encoding took too long. Try exporting at 1× scale.",
-  );
 }
 
 export type ClipboardAdapter = {
@@ -332,7 +413,7 @@ export function copyPng(
       encoding,
       clipboard.timeoutMs ?? TIMEOUT_MS,
       "png_timeout",
-      "PNG encoding took too long. Try exporting at 1× scale.",
+      "PNG encoding took too long. Wait for the browser to finish; reload if it never responds.",
     ).then((blob) => {
       if (!blob || blob.type !== "image/png" || blob.size === 0)
         throw new AppError(
@@ -393,6 +474,26 @@ export function downloadPng(
 ): void {
   if (blob.type !== "image/png" || blob.size === 0)
     throw new AppError("png_encode", "Choose a valid PNG to download.");
+  downloadFile(blob, name, adapter);
+}
+
+export function downloadFile(
+  blob: Blob,
+  name: string,
+  adapter?: DownloadAdapter,
+): void {
+  const extension = (
+    {
+      "image/png": "png",
+      "application/json": "json",
+      "application/zip": "zip",
+    } as Record<string, string>
+  )[blob.type];
+  if (!extension || !blob.size)
+    throw new AppError(
+      "download_type",
+      "Choose a nonempty PNG, JSON, or ZIP file to download.",
+    );
   const environment = adapter ?? {
     createObjectURL: (value: Blob) => URL.createObjectURL(value),
     revokeObjectURL: (url: string) => URL.revokeObjectURL(url),
@@ -400,18 +501,18 @@ export function downloadPng(
     appendAnchor: (anchor: HTMLAnchorElement) =>
       document.body.appendChild(anchor),
   };
-  let url: string | undefined;
-  let anchor: HTMLAnchorElement | undefined;
+  let url: string | undefined, anchor: HTMLAnchorElement | undefined;
   try {
     url = environment.createObjectURL(blob);
     anchor = environment.createAnchor();
     const filename =
       name
         .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, "-")
-        .replace(/\.png$/i, "")
+        .replace(/\.(png|json|zip)$/i, "")
         .trim()
-        .slice(0, 116) || "shinyshot";
-    anchor.download = `${filename}.png`;
+        .replace(/^\.+/, "")
+        .slice(0, 116) || "picwiz";
+    anchor.download = `${filename}.${extension}`;
     anchor.href = url;
     anchor.style.display = "none";
     environment.appendAnchor(anchor);
@@ -423,7 +524,6 @@ export function downloadPng(
     );
   } finally {
     anchor?.remove();
-    // Allow the browser to start consuming the local URL before releasing it.
     if (url) {
       const createdUrl = url;
       setTimeout(() => environment.revokeObjectURL(createdUrl), 1000);

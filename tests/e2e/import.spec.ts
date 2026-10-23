@@ -14,8 +14,9 @@ import {
 test.use({ trace: "off", video: "off" });
 
 test("a real 4K drop renders within one second; invalid files preserve pixels and source without uploading", async ({
-  page,
+  page, browserName,
 }, testInfo) => {
+  test.skip(browserName !== "chromium", "Desktop Chromium timing benchmark only; not phone performance evidence.");
   const uploadRequests: string[] = [];
   page.on("request", (request) => {
     if (

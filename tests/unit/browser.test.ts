@@ -3,6 +3,9 @@ import {
   canvasToPng,
   copyPng,
   downloadPng,
+  downloadFile,
+  isPngEncoderBusy,
+  subscribePngEncoder,
   importImage,
   loadImage,
   type ClipboardAdapter,
@@ -152,6 +155,8 @@ describe("local image import", () => {
       "blob:local-image",
     );
     expect(images[0].removeAttribute).toHaveBeenCalledWith("src");
+    expect(canvas.width).toBe(0);
+    expect(canvas.height).toBe(0);
   });
 
   it("resizes high-entropy sources when quality reduction cannot meet the stored data limit", async () => {
@@ -256,10 +261,17 @@ describe("PNG encoding and clipboard", () => {
     });
   });
 
-  it("times out when a browser never invokes toBlob", async () => {
+  it("keeps the native lock after timeout, rejects overlapping work, and discards the late result", async () => {
     vi.useFakeTimers();
+    let callback!: BlobCallback;
+    const listener = vi.fn();
+    const unsubscribe = subscribePngEncoder(listener);
     const promise = canvasToPng(
-      { toBlob: () => {} } as unknown as HTMLCanvasElement,
+      {
+        toBlob: (next: BlobCallback) => {
+          callback = next;
+        },
+      } as unknown as HTMLCanvasElement,
       { timeoutMs: 20 },
     );
     const rejected = expect(promise).rejects.toMatchObject({
@@ -267,6 +279,53 @@ describe("PNG encoding and clipboard", () => {
     });
     await vi.advanceTimersByTimeAsync(21);
     await rejected;
+    expect(isPngEncoderBusy()).toBe(true);
+    const next = {
+      toBlob: vi.fn((cb: BlobCallback) => cb(PNG)),
+    } as unknown as HTMLCanvasElement;
+    await expect(canvasToPng(next)).rejects.toMatchObject({ code: "png_busy" });
+    expect(next.toBlob).not.toHaveBeenCalled();
+    callback(PNG);
+    expect(isPngEncoderBusy()).toBe(false);
+    await expect(canvasToPng(next)).resolves.toBe(PNG);
+    expect(listener.mock.calls).toEqual([[true], [false], [true], [false]]);
+    unsubscribe();
+  });
+
+  it("holds the lock on cancellation until the real callback and ignores duplicate callbacks", async () => {
+    const controller = new AbortController();
+    let callback!: BlobCallback;
+    const pending = canvasToPng(
+      {
+        toBlob: (cb: BlobCallback) => {
+          callback = cb;
+        },
+      } as HTMLCanvasElement,
+      { signal: controller.signal },
+    );
+    const rejected = expect(pending).rejects.toMatchObject({
+      code: "cancelled",
+    });
+    controller.abort();
+    await rejected;
+    expect(isPngEncoderBusy()).toBe(true);
+    callback(null);
+    expect(isPngEncoderBusy()).toBe(false);
+    let nextCallback!: BlobCallback;
+    const next = canvasToPng({
+      toBlob: (cb: BlobCallback) => {
+        nextCallback = cb;
+      },
+    } as HTMLCanvasElement);
+    callback(PNG);
+    expect(isPngEncoderBusy()).toBe(true);
+    nextCallback(PNG);
+    await expect(next).resolves.toBe(PNG);
+    const aborted = { toBlob: vi.fn() } as unknown as HTMLCanvasElement;
+    await expect(
+      canvasToPng(aborted, { signal: controller.signal }),
+    ).rejects.toMatchObject({ code: "cancelled" });
+    expect(aborted.toBlob).not.toHaveBeenCalled();
   });
 
   it("starts clipboard.write synchronously while PNG encoding is still pending", async () => {
@@ -392,4 +451,44 @@ describe("local PNG downloads", () => {
       "blob:download",
     );
   });
+});
+
+describe("generic local downloads", () => {
+  it.each(["application/json", "application/zip"])(
+    "downloads %s with the right extension and cleans up on dispatch failure",
+    (type) => {
+      vi.useFakeTimers();
+      const anchor = {
+        style: {},
+        download: "",
+        href: "",
+        click: vi.fn(),
+        remove: vi.fn(),
+      };
+      const adapter: DownloadAdapter = {
+        createObjectURL: vi.fn(() => "blob:download"),
+        revokeObjectURL: vi.fn(),
+        createAnchor: () => anchor as unknown as HTMLAnchorElement,
+        appendAnchor: vi.fn(),
+      };
+      const extension = type === "application/json" ? "json" : "zip";
+      const blob = new Blob(["local bytes"], { type });
+      downloadFile(blob, `../private\u0000\\name.${extension}`, adapter);
+      expect(anchor.download).toMatch(new RegExp(`\\.${extension}$`));
+      expect(anchor.download).not.toMatch(/[/\\\u0000]/);
+      expect(anchor.download.length).toBeLessThanOrEqual(121);
+      anchor.click.mockImplementation(() => {
+        throw new Error("blocked");
+      });
+      expect(() => downloadFile(blob, "file", adapter)).toThrow(
+        expect.objectContaining({ code: "download_failed" }),
+      );
+      expect(anchor.remove).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(1000);
+      expect(adapter.revokeObjectURL).toHaveBeenCalledTimes(2);
+      expect(() =>
+        downloadFile(new Blob(["bad"], { type: "text/html" }), "bad", adapter),
+      ).toThrow();
+    },
+  );
 });

@@ -1,0 +1,97 @@
+name: PicWiz V2 checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Install browser engines and system dependencies
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Regenerate synthetic demo and legacy test fixtures
+        run: npm run seed
+      - name: Build production app
+        run: npm run build
+      - name: Verify production health, headers and complete test command
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results
+          npm start > test-results/production-server.log 2>&1 &
+          picwiz_server_pid=$!
+          trap 'kill "$picwiz_server_pid" 2>/dev/null || true' EXIT
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { setTimeout } from 'node:timers/promises';
+          const base = process.env.PLAYWRIGHT_BASE_URL;
+          const deadline = Date.now() + 60_000;
+          let lastError;
+          let ready = false;
+          while (Date.now() < deadline) {
+            try {
+              const response = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(1000) });
+              assert.equal(response.status, 200);
+              const health = await response.json();
+              assert.equal(health.status, 'ok');
+              assert.equal(health.app, 'picwiz');
+              assert.equal(health.version, 2);
+              assert.equal(health.storage, 'browser-local');
+              assert.equal(response.headers.get('cache-control'), 'no-store');
+              assert.equal(response.headers.get('x-request-id'), health.requestId);
+              assert.match(health.requestId, /^[0-9a-f-]{36}$/);
+              ready = true;
+              break;
+            } catch (error) {
+              lastError = error;
+              await setTimeout(500);
+            }
+          }
+          assert.ok(ready, `Production health failed: ${lastError}`);
+          const page = await fetch(base, { signal: AbortSignal.timeout(10_000) });
+          assert.equal(page.status, 200);
+          assert.equal(page.headers.get('x-content-type-options'), 'nosniff');
+          assert.equal(page.headers.get('x-frame-options'), 'DENY');
+          assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
+          assert.match(page.headers.get('permissions-policy') ?? '', /camera=\(\)/);
+          const csp = page.headers.get('content-security-policy') ?? '';
+          assert.ok(csp.includes("default-src 'self'"));
+          assert.ok(csp.includes("connect-src 'self'"));
+          assert.ok(csp.includes("frame-ancestors 'none'"));
+          assert.ok(!csp.includes('unsafe-eval'));
+          const mutation = await fetch(`${base}/api/health`, { method: 'POST', signal: AbortSignal.timeout(10_000) });
+          assert.equal(mutation.status, 405);
+          console.log('Production health and security headers verified.');
+          NODE
+          npm test
+      - name: Retain synthetic failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: picwiz-test-failures
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -93,12 +93,12 @@ describe("versioned local storage", () => {
 
   it.each([
     "{broken",
-    JSON.stringify({ version: 2, unknown: "keep" }),
+    JSON.stringify({ version: 3, unknown: "keep" }),
     JSON.stringify({ ...createStore(), version: 0 }),
   ])("preserves unsupported or corrupt data: %s", (raw) => {
     const storage = new MemoryStorage();
     storage.setItem(STORAGE_KEY, raw);
-    const code = raw.includes('"version":2')
+    const code = raw.includes('"version":3')
       ? "storage_version"
       : "storage_corrupt";
     expectCode(() => loadStore(storage), code);
@@ -160,7 +160,7 @@ describe("versioned local storage", () => {
     }
   });
 
-  it("makes stale pending jobs failed in memory while preserving terminal records", () => {
+  it("commits pending-job recovery once while preserving terminal records", () => {
     const storage = new MemoryStorage();
     let store = createJob(createStore(), "download", DEFAULT_STYLE, "finished");
     store = finishJob(store, "finished", "succeeded");
@@ -175,7 +175,8 @@ describe("versioned local storage", () => {
       error: "interrupted",
       completedAt: "2026-10-23T12:01:00.000Z",
     });
-    expect(storage.getItem(STORAGE_KEY)).toBe(before);
+    expect(storage.getItem(STORAGE_KEY)).not.toBe(before);
+    expect(JSON.parse(storage.getItem(STORAGE_KEY)!)).toEqual(reloaded);
     saveStore(storage, reloaded);
     expect(loadStore(storage)).toEqual(reloaded);
   });

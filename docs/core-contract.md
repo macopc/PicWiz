@@ -1,3 +1,5 @@
+> Historical V1 handoff only. For PicWiz V2 use [the current integration contract](v2/core-contract.md) and [data model](data-model.md).
+
 # Core implementation contract
 
 The requested exports are implemented in `lib/domain.ts`, `lib/storage.ts`, `lib/canvas.ts`, and `lib/browser.ts`. `lib/image-format.ts` shares pure raster validation between storage and import. No runtime dependencies or remote operations are used.

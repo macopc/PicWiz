@@ -3,7 +3,7 @@ import "@fontsource-variable/dm-sans";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Shinyshot — Make your screenshots shine",
+  title: "PicWiz — Make your screenshots shine",
   description:
     "A little polish for your next big thing. Style screenshots and export social-ready images, entirely in your browser.",
   icons: { icon: "/icon.svg" },

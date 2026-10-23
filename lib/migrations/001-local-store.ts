@@ -1,4 +1,5 @@
-import { AppError, DEFAULT_STYLE } from "../domain";
+import { AppError } from "../domain";
+import { V1_DEFAULT_STYLE } from "./frozen-v1";
 
 /** Version zero represents an uninitialized document, never a user composition. */
 export function migrate001(input: unknown, instant: string): unknown {
@@ -22,7 +23,7 @@ export function migrate001(input: unknown, instant: string): unknown {
       createdAt: instant,
       updatedAt: instant,
       status: "empty",
-      style: { ...DEFAULT_STYLE },
+      style: { ...V1_DEFAULT_STYLE },
       source: null,
     },
     presets: [],

@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -13,7 +14,7 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   reporter: "list",
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL,
     acceptDownloads: true,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
@@ -27,10 +28,27 @@ export default defineConfig({
         launchOptions: executablePath ? { executablePath } : {},
       },
     },
+    {
+      name: "firefox",
+      grep: /@critical/,
+      use: {
+        ...devices["Desktop Firefox"],
+        viewport: { width: 1440, height: 1000 },
+      },
+    },
+    {
+      name: "webkit",
+      grep: /@critical/,
+      use: {
+        ...devices["Desktop Safari"],
+        viewport: { width: 1440, height: 1000 },
+      },
+    },
   ],
-  webServer: {
+  // CI may supply its separately started production server. Local npm test remains one command.
+  webServer: process.env.PLAYWRIGHT_BASE_URL ? undefined : {
     command: "npm run dev",
-    url: "http://localhost:3000",
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

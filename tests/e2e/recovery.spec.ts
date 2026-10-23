@@ -2,11 +2,13 @@ import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { DEFAULT_STYLE } from "../../lib/domain";
 import {
+  STORE_KEY,
   expectStyle,
   openEditor,
   readStore,
   setSlider,
   sourceFromStore,
+  supportsClipboardPng,
   uploadSolid,
 } from "./helpers";
 const recovery = JSON.parse(
@@ -19,7 +21,8 @@ const recovery = JSON.parse(
 test("clipboard permission failure leaves the screenshot intact and download recovers", async ({
   page,
 }) => {
-  await page.addInitScript(() =>
+  await page.addInitScript(() => {
+    if (!navigator.clipboard?.write) return;
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: {
@@ -28,13 +31,14 @@ test("clipboard permission failure leaves the screenshot intact and download rec
             new DOMException("Permission denied", "NotAllowedError"),
           ),
       },
-    }),
-  );
+    });
+  });
   await openEditor(page);
   const source = await uploadSolid(page, "clipboard-recovery.png", 1440, 740);
+  const supported = await supportsClipboardPng(page);
   await page.getByRole("button", { name: "Copy image", exact: true }).click();
   await expect(page.getByTestId("notification")).toContainText(
-    /permission.*denied.*download/i,
+    supported ? /permission.*denied.*download/i : /download.*instead|download.*png/i,
   );
   await expect
     .poll(async () => (await readStore(page))?.jobs.at(-1)?.status)
@@ -42,7 +46,7 @@ test("clipboard permission failure leaves the screenshot intact and download rec
   expect((await readStore(page))?.composition.source).toEqual(source);
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export PNG", exact: true }).click();
-  expect((await download).suggestedFilename()).toBe("shinyshot-1600x900.png");
+  expect((await download).suggestedFilename()).toBe("picwiz-1600x900.png");
   await expect
     .poll(async () => (await readStore(page))?.jobs.at(-1)?.status)
     .toBe("succeeded");
@@ -52,14 +56,15 @@ test("corrupt browser data is preserved until a scoped confirmed clear, then sav
   page,
 }) => {
   const corrupt = "{broken local data";
-  await page.addInitScript((value) => {
-    if (localStorage.getItem("shinyshot:store") === null)
-      localStorage.setItem("shinyshot:store", value);
-  }, corrupt);
+  await page.addInitScript(({ key, value }) => {
+    if (sessionStorage.getItem("corrupt-seeded")) return;
+    localStorage.setItem(key, value);
+    sessionStorage.setItem("corrupt-seeded", "1");
+  }, { key: STORE_KEY, value: corrupt });
   await page.goto("/");
   await expect(page.getByText(/saved browser data is invalid/i)).toBeVisible();
   expect(
-    await page.evaluate(() => localStorage.getItem("shinyshot:store")),
+    await page.evaluate((key) => localStorage.getItem(key), STORE_KEY),
   ).toBe(corrupt);
   await page
     .getByRole("button", { name: "Clear local data", exact: true })
@@ -70,7 +75,7 @@ test("corrupt browser data is preserved until a scoped confirmed clear, then sav
     .getByRole("button", { name: "Cancel", exact: true })
     .click();
   expect(
-    await page.evaluate(() => localStorage.getItem("shinyshot:store")),
+    await page.evaluate((key) => localStorage.getItem(key), STORE_KEY),
   ).toBe(corrupt);
   await page
     .getByRole("button", { name: "Clear local data", exact: true })

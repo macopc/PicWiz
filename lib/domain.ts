@@ -5,7 +5,7 @@ export type Style = {
   shadow: number;
   frame: "none" | "browser" | "device";
   appearance: "light" | "dark";
-  size: "landscape" | "square" | "portrait";
+  size: SizeId;
   scale: 1 | 2;
 };
 
@@ -65,10 +65,46 @@ export const BACKGROUNDS: Background[] = [
 ];
 
 export const SIZES = {
-  landscape: { width: 1600, height: 900, label: "Landscape" },
-  square: { width: 1080, height: 1080, label: "Square" },
-  portrait: { width: 1080, height: 1350, label: "Portrait" },
+  landscape: {
+    width: 1600,
+    height: 900,
+    label: "Landscape",
+    description: "Landscape · X composition",
+  },
+  square: {
+    width: 1080,
+    height: 1080,
+    label: "Square",
+    description: "Square · 1:1",
+  },
+  portrait: {
+    width: 1080,
+    height: 1350,
+    label: "Portrait",
+    description: "Portrait · 4:5",
+  },
+  story: {
+    width: 1080,
+    height: 1920,
+    label: "Story",
+    description: "Story · 9:16",
+  },
+  linkedin: {
+    width: 1200,
+    height: 627,
+    label: "LinkedIn",
+    description: "LinkedIn Page link image",
+  },
+  pinterest: {
+    width: 1000,
+    height: 1500,
+    label: "Pinterest",
+    description: "Pinterest standard image ad",
+  },
 } as const;
+
+export type SizeId = keyof typeof SIZES;
+export type Look = Omit<Style, "size" | "scale">;
 
 export const DEFAULT_STYLE: Style = {
   background: "violet",
@@ -115,8 +151,8 @@ export function normalizeStyle(value: unknown = {}): Style {
         : "none",
     appearance: input.appearance === "dark" ? "dark" : "light",
     size:
-      input.size === "square" || input.size === "portrait"
-        ? input.size
+      typeof input.size === "string" && Object.hasOwn(SIZES, input.size)
+        ? (input.size as SizeId)
         : "landscape",
     scale: input.scale === 2 ? 2 : 1,
   };
@@ -130,3 +166,93 @@ export function dimensions(style: Style): { width: number; height: number } {
     height: size.height * normalized.scale,
   };
 }
+
+/** Output format belongs to the composition, never to a look. */
+export function applyLook(current: Style, look: Look | Style): Style {
+  return { ...normalizeStyle(look), size: current.size, scale: current.scale };
+}
+
+export function lookOf(style: Style): Look {
+  const { background, padding, radius, shadow, frame, appearance } =
+    normalizeStyle(style);
+  return { background, padding, radius, shadow, frame, appearance };
+}
+
+export const STARTER_PRESETS: {
+  id: string;
+  name: string;
+  description: string;
+  style: Style;
+}[] = [
+  {
+    id: "studio",
+    name: "Studio",
+    description: "Violet, generous space and a soft shadow",
+    style: { ...DEFAULT_STYLE },
+  },
+  {
+    id: "paper",
+    name: "Paper",
+    description: "A light browser frame on paper",
+    style: {
+      ...DEFAULT_STYLE,
+      background: "paper",
+      padding: 80,
+      radius: 16,
+      shadow: 20,
+      frame: "browser",
+    },
+  },
+  {
+    id: "midnight",
+    name: "Midnight",
+    description: "Dark browser chrome and a deeper shadow",
+    style: {
+      ...DEFAULT_STYLE,
+      background: "midnight",
+      padding: 96,
+      radius: 18,
+      shadow: 55,
+      frame: "browser",
+      appearance: "dark",
+    },
+  },
+  {
+    id: "mint",
+    name: "Mint",
+    description: "Fresh green with generous corners",
+    style: {
+      ...DEFAULT_STYLE,
+      background: "mint",
+      padding: 112,
+      radius: 24,
+      shadow: 28,
+    },
+  },
+  {
+    id: "sunset",
+    name: "Sunset",
+    description: "A warm background and a device frame",
+    style: {
+      ...DEFAULT_STYLE,
+      background: "sunset",
+      padding: 88,
+      radius: 16,
+      shadow: 45,
+      frame: "device",
+    },
+  },
+  {
+    id: "ocean",
+    name: "Ocean",
+    description: "Cool blue with a light browser frame",
+    style: {
+      ...DEFAULT_STYLE,
+      background: "ocean",
+      padding: 104,
+      radius: 14,
+      shadow: 40,
+      frame: "browser",
+    },
+  },
+];

@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "composition": {
+    "id": "current",
+    "createdAt": "2026-10-23T12:00:00.000Z",
+    "updatedAt": "2026-10-23T12:00:00.000Z",
+    "status": "empty",
+    "source": null,
+    "style": {
+      "background": "violet",
+      "padding": 96,
+      "radius": 12,
+      "shadow": 36,
+      "frame": "none",
+      "appearance": "light",
+      "size": "landscape",
+      "scale": 1
+    },
+    "annotations": []
+  },
+  "presets": [],
+  "jobs": []
+}

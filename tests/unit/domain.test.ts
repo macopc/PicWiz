@@ -71,3 +71,53 @@ describe("style boundary", () => {
     });
   });
 });
+
+describe("V2 look and social size catalog", () => {
+  it("provides all six sizes at both scales and six fixed starter looks", async () => {
+    const { STARTER_PRESETS, applyLook } = await import("../../lib/domain");
+    expect(Object.keys(SIZES)).toEqual([
+      "landscape",
+      "square",
+      "portrait",
+      "story",
+      "linkedin",
+      "pinterest",
+    ]);
+    expect(SIZES).toMatchObject({
+      story: { width: 1080, height: 1920 },
+      linkedin: { width: 1200, height: 627 },
+      pinterest: { width: 1000, height: 1500 },
+    });
+    expect(
+      STARTER_PRESETS.map((p) => [
+        p.name,
+        p.style.background,
+        p.style.padding,
+        p.style.radius,
+        p.style.shadow,
+        p.style.frame,
+        p.style.appearance,
+      ]),
+    ).toEqual([
+      ["Studio", "violet", 96, 12, 36, "none", "light"],
+      ["Paper", "paper", 80, 16, 20, "browser", "light"],
+      ["Midnight", "midnight", 96, 18, 55, "browser", "dark"],
+      ["Mint", "mint", 112, 24, 28, "none", "light"],
+      ["Sunset", "sunset", 88, 16, 45, "device", "light"],
+      ["Ocean", "ocean", 104, 14, 40, "browser", "light"],
+    ]);
+    const current = {
+      ...DEFAULT_STYLE,
+      size: "story" as const,
+      scale: 2 as const,
+    };
+    for (const preset of STARTER_PRESETS) {
+      const next = applyLook(current, preset.style);
+      expect(next).toMatchObject({ size: "story", scale: 2 });
+      expect(next.background).toBe(preset.style.background);
+      next.radius = 0;
+      expect(preset.style.radius).toBeGreaterThan(0);
+    }
+    expect(normalizeStyle({ size: "constructor" }).size).toBe("landscape");
+  });
+});
