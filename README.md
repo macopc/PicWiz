@@ -90,3 +90,7 @@ For diagnosis, check health, then the browser recovery message and job error cod
 `next.config.ts` sends CSP, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` and a restrictive Permissions-Policy. Production permits Next.js inline scripts/styles; network/fonts stay same-origin, images also allow local data/blob URLs, objects/framing are blocked. Configure HTTPS at the host and verify headers survive its proxy. Editing needs JavaScript/Canvas; no offline service worker, cloud sync or account recovery is included.
 
 Authoritative behavior and accepted risks are in [spec.md](docs/v2/spec.md), including R1–R5; [review.md](docs/v2/review.md) separates spec review from implementation evidence. Gallery, 3D, video and account work follows V2 completion and is outside this implementation.
+
+## Next-stage decisions
+
+V2 is complete at `0704446`; see [actual validation](docs/v2/validation.md). Proposed gallery, 3D, video and accounts have [product designs](docs/future/product-design.md), [technical comparisons](docs/future/decisions.md), [independent reviews](docs/future/review.md) and a [local decision brief](docs/future/decision-brief.html). These are proposals only; implementation, dependencies, provider resources and any new privacy boundary await user decisions.
