@@ -30,7 +30,7 @@
     "fflate": "0.8.3",
     "sharp": "^0.35.5",
     "typescript": "^5.9.0",
-    "vitest": "^4.0.0"
+    "vitest": "^5.0.5"
   },
   "description": "A local-first screenshot studio with presets, annotations, social sizes and batch PNG exports.",
   "license": "MIT",
