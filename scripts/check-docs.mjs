@@ -36,6 +36,7 @@ for (const file of documents.sort()) {
     if (!localPath) continue;
     const relative = path.relative(root, file);
     try {
+      if (path.isAbsolute(localPath)) throw new Error("use a repository-relative path");
       const resolved = path.resolve(path.dirname(file), decodeURIComponent(localPath));
       if (!resolved.startsWith(root)) throw new Error("target is outside the repository");
       await stat(resolved);
